@@ -1,0 +1,316 @@
+---
+title: "VISA stat analysis summary"
+author: CSL
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(stringr)
+library(lme4)
+library(ggplot2)
+```
+
+
+# Methods
+
+To study potential pairwise interactions between SNPs affecting the MIC of vancomycin, we fit linear mixed-effects models with presence/absence of SNPs as fixed-effects predictors (main and interaction effects) and background (NRS70, NRS384) as scalar random effect. 
+In addition, we tested mixed-effects models with vector random effects (affecting intercept and slope of certain interactions), but these models were not stable enough for convergence (results not shown).
+Given the sparsity of the data matrix, we restricted the predictors to common SNPs present in at least 10% of the strains. We transformed the response to logarithmic scale.
+
+To investigate differences in the effect sizes of SNPs per background, we fit standard linear models with interaction terms for SNP presence and background. In these models, background is included as a fixed-effects predictor because the mixed-effects version (with background as vector random effect affecting the main and interaction effects of the SNPs) was not computationally stable.
+ 
+Finally, we fitted the same models for a different response: growth rate as proxy of fitness. Similarly to the vancomycin models, we searched for pairwise SNP interactions with mixed-effects models and SNP-background interactions with standard linear models.
+
+
+# Results
+
+```{r, echo=FALSE}
+dat = read.table("data/all_var_matrix.csv", sep=",", header=TRUE)
+dat0 = read.table("data/nonsyn_var_matrix.csv", sep=",", header=TRUE)
+
+dat$r = dat0$r
+dat$van_mic = dat0$van_mic
+dat$dap_mic = dat0$dap_mic
+
+dat2 = dat[, colSums(dat != 0, na.rm = TRUE) > 0]
+dat3 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 1)]
+dat4 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 9)]
+
+dat4$WP_000918667.1[dat4$WP_000918667.1 == 2] = 1
+dat4$WP_001060462.1[dat4$WP_001060462.1 == 2] = 1
+dat4$WP_001017131.1[dat4$WP_001017131.1 == 2] = 1
+dat4$WP_000149064.1[dat4$WP_000149064.1 == 2] = 1
+
+dat10.c = dat4[complete.cases(dat4),]
+dat10.c = within(dat10.c, Strain<-factor(Strain))
+
+dat10.c$cc = "NRS384"
+dat10.c$cc[str_detect(dat10.c$Strain,"NRS70")] = "NRS70"
+dat10.c = within(dat10.c, cc <- factor(cc))
+```
+
+## Interaction effects between SNPs and background
+
+```{r, echo=FALSE}
+## standard linear model
+mod1 = lm(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + cc, dat10.c)
+
+## interactions with cc
+mod1.2 = lm(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + WP_001788197.1*cc, dat10.c)
+a = anova(mod1,mod1.2)
+pv = round(a$`Pr(>F)`[2],4)
+
+intterm = attributes(terms(mod1.2))$term.labels[length(attributes(terms(mod1.2))$term.labels)]
+
+### significant terms
+df = summary(mod1.2)$coefficients[summary(mod1.2)$coefficients[,4]<0.05,]
+
+str = "The significant predictors are "
+for(i in 2:nrow(df)){
+  w = rownames(df)[i]
+  est = round(df[i,1],4)
+  p = round(df[i,4],3)
+  str = paste0(str, w, " (with estimated effect ", est, " and pvalue ", p, ")")
+  if(i<nrow(df)){
+    str = paste0(str,", ")
+  }
+}
+
+## interaction plot
+df2 = summary(mod1.2)$coefficients
+ss = strsplit(intterm,':')
+intterms = unique(c(rownames(df2)[str_detect(rownames(df2),"Intercept")], rownames(df2)[str_detect(rownames(df2),ss[[1]][1])], rownames(df2)[str_detect(rownames(df2),ss[[1]][2])]))
+df3 = df2[intterms,]
+
+## line for NRS70:
+intercept1 = df3["(Intercept)",1] + df3["ccNRS70",1]
+slope1 = df3["WP_001788197.1",1] + df3["WP_001788197.1:ccNRS70",1]
+
+## line for NRS384
+intercept2 = df3["(Intercept)",1]
+slope2 = df3["WP_001788197.1",1]
+
+newdf1 = data.frame(x=c(0,1),y=c(intercept1, intercept1+slope1))
+newdf2 = data.frame(x=c(0,1),y=c(intercept2, intercept2+slope2))
+
+p <- ggplot(dat10.c,aes(x=WP_001788197.1,y=log(van_mic)))+
+          geom_jitter(aes(color=cc), alpha=0.3, width=0.05, height=0.05)+
+          #geom_smooth(method = "lm") +
+          #geom_abline(intercept=intercept1, slope=slope1, linetype="dashed", color="blue") +
+          #geom_abline(intercept=intercept2, slope=slope2, linetype="dashed", color="red") +
+          geom_point(data=newdf1,aes(x=x,y=y),color="deepskyblue4", size=2.5)+
+          geom_line(data=newdf1,aes(x=x,y=y),color="deepskyblue4", size=1.5)+
+          geom_point(data=newdf2,aes(x=x,y=y),color="firebrick3", size=2.5)+
+          geom_line(data=newdf2,aes(x=x,y=y),color="firebrick3", size=1.5)+
+          scale_x_continuous(breaks=c(0,1))+
+          theme(
+              legend.title = element_blank(),
+              plot.title = element_text(hjust=0.5, size=rel(1.8)),
+              axis.title.x = element_text(size=rel(1.8)),
+              axis.title.y = element_text(size=rel(1.8), angle=90, vjust=0.5, hjust=0.5),
+              axis.text.x = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              axis.text.y = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              panel.background = element_blank(),
+              axis.line = element_line(colour = "grey")##,
+              )
+```
+
+In the standard linear model, we included the predictors of `r attributes(terms(mod1))$term.labels`. The only significant interaction with background (`cc`) is `r intterm` with p-value `r pv`.
+`r str`. Growth was not included as a confounder as it was not significant.
+
+**Figure 1:** Effect sizes of WP_001788197.1 on the logarithm of MIC of vancomycin by background (NRS70, blue and NRS384, red). The difference in slope illustrates the interaction effect between WP_001788197.1 and background (significant with pvalue=`r pv`). The effect of WP_001788197.1 is `r newdf1$y[2]-newdf2$y[2]` higher in NRS70 than in NRS384. 
+
+```{r, echo=FALSE}
+p
+```
+
+
+## Pairwise interaction effects between SNPs
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+## WP_001106057.1 not included due to singularity issues:
+mod1 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+mod6 = lmer(log(van_mic) ~ WP_000871607.1*WP_001060462.1 + WP_000918667.1 + WP_001788197.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+a2 = anova(mod1,mod6)
+pv2 = round(a2$`Pr(>Chisq)`[2],4)
+intterm2 = attributes(terms(mod6))$term.labels[length(attributes(terms(mod6))$term.labels)]
+
+mod2 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+mod5 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_000149064.1 + WP_001060462.1*WP_001106057.1 + WP_001017131.1 + (1 | cc), dat10.c)
+a3 = anova(mod2,mod5)
+pv3 = round(a3$`Pr(>Chisq)`[2],4)
+intterm3 = attributes(terms(mod5))$term.labels[length(attributes(terms(mod5))$term.labels)]
+
+## interaction plot
+df2 = summary(mod6)$coefficients
+ss = strsplit(intterm2,':')
+intterms = unique(c(rownames(df2)[str_detect(rownames(df2),"Intercept")], rownames(df2)[str_detect(rownames(df2),ss[[1]][1])], rownames(df2)[str_detect(rownames(df2),ss[[1]][2])]))
+df3 = df2[intterms,]
+
+## line for WP_000871607.1=0:
+intercept1 = df3["(Intercept)",1]
+slope1 = df3["WP_001060462.1",1]
+
+## line for WP_000871607.1=1:
+intercept2 = df3["(Intercept)",1] + df3["WP_000871607.1",1]
+slope2 = df3["WP_001060462.1",1] + df3["WP_000871607.1:WP_001060462.1",1]
+
+newdf1 = data.frame(x=c(0,1),y=c(intercept1, intercept1+slope1))
+newdf2 = data.frame(x=c(0,1),y=c(intercept2, intercept2+slope2))
+
+p2 <- ggplot(dat10.c,aes(x=WP_001060462.1,y=log(van_mic)))+
+          geom_jitter(aes(color=as.factor(WP_000871607.1)), alpha=0.3, width=0.05, height=0.05)+
+          geom_point(data=newdf1,aes(x=x,y=y),color="firebrick3", size=2.5)+
+          geom_line(data=newdf1,aes(x=x,y=y),color="firebrick3", size=1.5)+
+          geom_point(data=newdf2,aes(x=x,y=y),color="deepskyblue4", size=2.5)+
+          geom_line(data=newdf2,aes(x=x,y=y),color="deepskyblue4", size=1.5)+
+          scale_x_continuous(breaks=c(0,1))+
+          guides(color=guide_legend(title="WP_000871607.1"))+
+          theme(
+              plot.title = element_text(hjust=0.5, size=rel(1.8)),
+              axis.title.x = element_text(size=rel(1.8)),
+              axis.title.y = element_text(size=rel(1.8), angle=90, vjust=0.5, hjust=0.5),
+              axis.text.x = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              axis.text.y = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              panel.background = element_blank(),
+              axis.line = element_line(colour = "grey")##,
+              )
+```
+
+In the mixed-effects model, only one pairwise interaction was significant: `r intterm2` with pvalue=`r pv2`. The interaction of `r intterm3` was close to significant with pvalue=`r pv3`.
+
+
+**Figure 2:** Effect sizes of WP_001060462.1 on the logarithm of MIC of vancomycin by WP_000871607.1 (presence: blue and absence: red). The difference in slope illustrates the interaction effect between WP_001060462.1 and WP_000871607.1 (significant with pvalue=`r pv2`). The effect of WP_001060462.1 is `r newdf1$y[2]-newdf2$y[2]` lower when WP_000871607.1 is present. 
+
+```{r, echo=FALSE}
+p2
+```
+
+## Growth rate as response
+
+```{r, echo=FALSE}
+m1 = lm(log(r) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + cc, dat10.c)
+m1.4 = lm(log(r) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1*cc + WP_001017131.1 + WP_000149064.1 + WP_001106057.1, dat10.c)
+
+a = anova(m1,m1.4)
+pv = round(a$`Pr(>F)`[2],4)
+
+intterm = attributes(terms(m1.4))$term.labels[length(attributes(terms(m1.4))$term.labels)]
+
+### significant terms
+df = summary(m1.4)$coefficients[summary(m1.4)$coefficients[,4]<0.05,]
+
+str = "The significant predictors are "
+for(i in 2:nrow(df)){
+  w = rownames(df)[i]
+  est = round(df[i,1],4)
+  p = round(df[i,4],3)
+  str = paste0(str, w, " (with estimated effect ", est, " and pvalue ", p, ")")
+  if(i<nrow(df)){
+    str = paste0(str,", ")
+  }
+}
+
+## interaction plot
+df2 = summary(m1.4)$coefficients
+ss = strsplit(intterm,':')
+intterms = unique(c(rownames(df2)[str_detect(rownames(df2),"Intercept")], rownames(df2)[str_detect(rownames(df2),ss[[1]][1])], rownames(df2)[str_detect(rownames(df2),ss[[1]][2])]))
+df3 = df2[intterms,]
+
+## line for NRS70:
+intercept1 = df3["(Intercept)",1] + df3["ccNRS70",1]
+slope1 = df3["WP_001060462.1",1] + df3["WP_001060462.1:ccNRS70",1]
+
+## line for NRS384
+intercept2 = df3["(Intercept)",1]
+slope2 = df3["WP_001060462.1",1]
+
+newdf1 = data.frame(x=c(0,1),y=c(intercept1, intercept1+slope1))
+newdf2 = data.frame(x=c(0,1),y=c(intercept2, intercept2+slope2))
+
+p3 <- ggplot(dat10.c,aes(x=WP_001060462.1,y=log(r)))+
+          geom_jitter(aes(color=cc), alpha=0.3, width=0.05, height=0.05)+
+          geom_point(data=newdf1,aes(x=x,y=y),color="deepskyblue4", size=2.5)+
+          geom_line(data=newdf1,aes(x=x,y=y),color="deepskyblue4", size=1.5)+
+          geom_point(data=newdf2,aes(x=x,y=y),color="firebrick3", size=2.5)+
+          geom_line(data=newdf2,aes(x=x,y=y),color="firebrick3", size=1.5)+
+          scale_x_continuous(breaks=c(0,1))+
+          theme(
+              legend.title = element_blank(),
+              plot.title = element_text(hjust=0.5, size=rel(1.8)),
+              axis.title.x = element_text(size=rel(1.8)),
+              axis.title.y = element_text(size=rel(1.8), angle=90, vjust=0.5, hjust=0.5),
+              axis.text.x = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              axis.text.y = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              panel.background = element_blank(),
+              axis.line = element_line(colour = "grey")##,
+              )
+```
+
+In the standard linear model, we included the predictors of `r attributes(terms(m1))$term.labels`. The only significant interaction with background (`cc`) is `r intterm` with p-value `r pv`. No predictors (aside from the interaction term) were significant.
+
+**Figure 3:** Effect sizes of WP_001060462.1 on the logarithm of the growth rate by background (NRS70, blue and NRS384, red). The difference in slope illustrates the interaction effect between WP_001060462.1 and background (significant with pvalue=`r pv`). The effect of WP_001060462.1 is `r newdf2$y[2]-newdf1$y[2]` lower in NRS70 than in NRS384. 
+
+```{r, echo=FALSE}
+p3
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+## WP_001106057.1 not included due to singularity issues:
+mod1 = lmer(log(r) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+mod13 = lmer(log(r) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+a2 = anova(mod1,mod13)
+pv2 = round(a2$`Pr(>Chisq)`[2],4)
+intterm2 = attributes(terms(mod13))$term.labels[length(attributes(terms(mod13))$term.labels)]
+
+
+## interaction plot
+df2 = summary(mod13)$coefficients
+ss = strsplit(intterm2,':')
+intterms = unique(c(rownames(df2)[str_detect(rownames(df2),"Intercept")], rownames(df2)[str_detect(rownames(df2),ss[[1]][1])], rownames(df2)[str_detect(rownames(df2),ss[[1]][2])]))
+df3 = df2[intterms,]
+
+## line for WP_001788197.1=0:
+intercept1 = df3["(Intercept)",1]
+slope1 = df3["WP_001060462.1",1]
+
+## line for WP_001788197.1=1:
+intercept2 = df3["(Intercept)",1] + df3["WP_001788197.1",1]
+slope2 = df3["WP_001060462.1",1] + df3["WP_001788197.1:WP_001060462.1",1]
+
+newdf1 = data.frame(x=c(0,1),y=c(intercept1, intercept1+slope1))
+newdf2 = data.frame(x=c(0,1),y=c(intercept2, intercept2+slope2))
+
+p4 <- ggplot(dat10.c,aes(x=WP_001060462.1,y=log(r)))+
+          geom_jitter(aes(color=as.factor(WP_001788197.1)), alpha=0.3, width=0.05, height=0.05)+
+          geom_point(data=newdf1,aes(x=x,y=y),color="firebrick3", size=2.5)+
+          geom_line(data=newdf1,aes(x=x,y=y),color="firebrick3", size=1.5)+
+          geom_point(data=newdf2,aes(x=x,y=y),color="deepskyblue4", size=2.5)+
+          geom_line(data=newdf2,aes(x=x,y=y),color="deepskyblue4", size=1.5)+
+          scale_x_continuous(breaks=c(0,1))+
+          guides(color=guide_legend(title="WP_001788197.1"))+
+          theme(
+              plot.title = element_text(hjust=0.5, size=rel(1.8)),
+              axis.title.x = element_text(size=rel(1.8)),
+              axis.title.y = element_text(size=rel(1.8), angle=90, vjust=0.5, hjust=0.5),
+              axis.text.x = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              axis.text.y = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              panel.background = element_blank(),
+              axis.line = element_line(colour = "grey")##,
+              )
+```
+
+In the mixed-effects model, only one pairwise interaction was significant: `r intterm2` with pvalue=`r pv2`.
+
+**Figure 4:** Effect sizes of WP_001060462.1 on the logarithm of growth rate by WP_001788197.1 (presence: blue and absence: red). The difference in slope illustrates the interaction effect between WP_001060462.1 and WP_001788197.1 (significant with pvalue=`r pv2`). The effect of WP_001060462.1 is `r newdf1$y[2]-newdf2$y[2]` lower when WP_001788197.1 is present. 
+
+```{r, echo=FALSE}
+p4
+```
+
+```{r, echo=FALSE}
+newalpha = format(round(0.05/90,5), scientific=F)
+```
+
+We note that while the reported effects were considered significant under the standard significance level ($\alpha=0.05$), these effects are no longer significant after Bonferroni multiple testing correction ($\alpha=$ `r newalpha`).

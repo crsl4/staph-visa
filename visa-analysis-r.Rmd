@@ -1,0 +1,315 @@
+---
+title: "VISA stat analysis: van_mic"
+author: CSL
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Main comments
+- interaction: WP_001788197.1 and WP_001060462.1 (pvalue=0.06) (WP_001788197.1:WP_001060462.1 -0.188433). Non-significant main effects: WP_001788197.1 -0.014612, WP_001060462.1 0.073164
+- WP_000918667.1 0.079134, pvalue=0.0443
+- WP_001060462.1*cc, pvalue=0.055 (WP_001060462.1:ccNRS70 -0.28793), main effect WP_001060462.1 0.04486 (non significant); main effect ccNRS70 0.05862 (non significant)
+
+# All data: `all_var_matrix.csv`
+
+Reading the data:
+```{r}
+dat = read.table("data/all_var_matrix.csv", sep=",", header=TRUE)
+dat0 = read.table("data/nonsyn_var_matrix.csv", sep=",", header=TRUE)
+
+dat$r = dat0$r
+dat$van_mic = dat0$van_mic
+dat$dap_mic = dat0$dap_mic
+
+str(dat)
+summary(dat)
+```
+Removing columns of all zeroes:
+```{r}
+dat2 = dat[, colSums(dat != 0, na.rm = TRUE) > 0]
+str(dat2)
+```
+
+Removing columns of all zeroes and just one 1:
+```{r}
+dat3 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 1)]
+str(dat3)
+summary(dat3)
+```
+
+Removing columns of less than 10 ones (~10%). We have the exact same as in non-synonimous except for `WP_001106057.1`.
+```{r}
+dat4 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 9)]
+str(dat4)
+summary(dat4)
+```
+
+One strange thing: I thought the columns are presence/absence, hence binary 0/1, but `WP_000918667.1, WP_001060462.1, WP_001017131.1,  WP_000149064.1` have a 2:
+```{r}
+dat4[dat4$WP_000918667.1 == 2,]
+dat4[dat4$WP_001060462.1 == 2,]
+dat4[dat4$WP_001017131.1 == 2,]
+dat4[dat4$WP_000149064.1 == 2,]
+```
+We will convert the 2 to 1:
+```{r}
+dat4$WP_000918667.1[dat4$WP_000918667.1 == 2] = 1
+dat4$WP_001060462.1[dat4$WP_001060462.1 == 2] = 1
+dat4$WP_001017131.1[dat4$WP_001017131.1 == 2] = 1
+dat4$WP_000149064.1[dat4$WP_000149064.1 == 2] = 1
+```
+
+We need to remove the NA rows:
+```{r}
+## >10% ones
+dat10.c = dat4[complete.cases(dat4),]
+dat10.c = within(dat10.c, Strain<-factor(Strain))
+str(dat10.c)
+```
+
+# Data Visualization plots
+
+Now, we plot the interaction plots. We want to see if the slopes of different groups are different which could indicate potential interaction effects.
+
+We are choosing columns one at a time to serve as the X-axis. For example, the first column `WP_000871607.1` in the X-axis, and the other columns as grouping variable for the first plots.
+
+We are focusing on only the columns that have at least 10% ones first.
+
+Some potential interactions (based on the plots):
+
+- NRS70: WP_00871607.1 and WP_000918667.1
+- NRS70: WP_00871607.1 and WP_001788197.1
+- NRS70: WP_001788197.1 and WP_000918667.1
+- NRS70: WP_001788197.1 and WP_001017131.1
+- NRS70: WP_001788197.1 and WP_000149064.1
+- NRS384: WP_000918667.1 and WP_001060462.1
+- NRS384: WP_000918667.1 and WP_001017131.1
+- NRS384: WP_000918667.1 and WP_000149064.1
+- NRS384: WP_001106057.1 and WP_000149064.1
+- NRS384: WP_000918667.1 and WP_001106057.1
+- NRS384: WP_001017131.1 and WP_001106057.1
+- NRS384: WP_001788197.1 and WP_001060462.1
+
+```{r, echo=FALSE}
+library(gridExtra)
+library(grid)
+library(ggplot2)
+library(stringr)
+
+## main plotting function
+interactionPlot = function(df,i,j){
+  p <- ggplot(df,aes(x=df[,i],y=r, color=as.factor(df[,j])))+
+          geom_jitter(alpha=0.3, width=0.05, height=0.05)+
+          geom_smooth(method = "lm") +
+          xlim(c(-0.1,1.1)) +
+          theme(
+              plot.title = element_text(hjust=0.5, size=rel(1.8)),
+              axis.title.x = element_text(size=rel(1.8)),
+              axis.title.y = element_text(size=rel(1.8), angle=90, vjust=0.5, hjust=0.5),
+              axis.text.x = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              axis.text.y = element_text(colour="grey", size=rel(1.5), angle=0, hjust=.5, vjust=.5, face="plain"),
+              panel.background = element_blank(),
+              axis.line = element_line(colour = "grey")##,
+              )
+  return(p)
+}
+
+##hist(dat10.c$r)
+##hist(log(dat10.c$r))
+
+## NRS70
+strain70 = "NRS70"
+dat70 = dat10.c[str_detect(dat10.c$Strain,strain70),]
+## NRS384
+strain384 = "NRS384"
+dat384 = dat10.c[str_detect(dat10.c$Strain,strain384),]
+
+for(i in 2:(ncol(dat10.c)-3)){
+  for(j in 2:(ncol(dat10.c)-3)){
+    if(i != j){
+      p = interactionPlot(dat70,i,j)
+      p2 <- p + xlab(names(dat70)[i])+
+          labs(color=names(dat70)[j]) +
+          ggtitle(strain70)
+      print(p2)
+    
+      q = interactionPlot(dat384,i,j)
+      q2 <- q + xlab(names(dat384)[i])+
+          labs(color=names(dat384)[j]) +
+          ggtitle(strain384)
+      print(q2)  
+    }
+  }  
+}
+
+```
+
+
+# Statistical analyses
+
+We will fit a linear mixed effects model using only the interactions that appeared in the plots (instead of the 15 possible interactions on 6 variables). We will group the strains by `Strain`.
+
+First, we fit the model without interactions:
+```{r}
+dat10.c$cc = "NRS384"
+dat10.c$cc[str_detect(dat10.c$Strain,"NRS70")] = "NRS70"
+dat10.c = within(dat10.c, cc <- factor(cc))
+
+library(lme4)
+##library(lmerTest)
+
+mod1 = lmer(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod1)
+```
+
+Then, we fit the models with interactions one by one and compare to the model without interactions with ANOVA. We fit two different interaction models: one with scalar random effects (interactions do not depend on CC), and one with vector random effects (interactions depend on CC). 
+```{r}
+mod2 = lmer(r ~ WP_000871607.1 * WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod2)
+
+anova(mod1,mod2)
+```
+
+
+```{r}
+mod3 = lmer(r ~ WP_000871607.1*WP_001788197.1 + WP_000918667.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod3)
+
+anova(mod1,mod3)
+
+mod3.2 = lmer(r ~ WP_000871607.1*WP_001788197.1 + WP_000918667.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 + WP_000871607.1*WP_001788197.1| cc), dat10.c)
+summary(mod3.2)
+
+anova(mod3,mod3.2)
+anova(mod1,mod3.2)
+```
+
+
+```{r}
+mod4 = lmer(r ~ WP_000871607.1 + WP_000918667.1*WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod4)
+
+anova(mod1,mod4)
+
+mod4.2 = lmer(r ~ WP_000871607.1 + WP_000918667.1*WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1+WP_000918667.1*WP_001788197.1 | cc), dat10.c)
+summary(mod4.2)
+
+anova(mod4,mod4.2)
+anova(mod1,mod4.2)
+```
+
+
+```{r}
+mod5 = lmer(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001017131.1 + WP_001060462.1 +  + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod5)
+
+anova(mod1,mod5)
+```
+
+
+```{r}
+mod6 = lmer(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_000149064.1 + WP_001060462.1 + WP_001017131.1  + WP_001106057.1 +(1 | cc), dat10.c)
+summary(mod6)
+
+anova(mod1,mod6)
+```
+
+
+```{r}
+mod7 = lmer(r ~ WP_000871607.1 + WP_000918667.1*WP_001060462.1 + WP_001788197.1  + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 +(1 | cc), dat10.c)
+summary(mod7)
+
+anova(mod1,mod7)
+```
+
+
+```{r}
+mod8 = lmer(r ~ WP_000871607.1 + WP_000918667.1*WP_001017131.1 + WP_001060462.1 + WP_001788197.1   + WP_000149064.1 + WP_001106057.1 +(1 | cc), dat10.c)
+summary(mod8)
+
+anova(mod1,mod8)
+```
+
+```{r}
+mod9 = lmer(r ~ WP_000871607.1 + WP_000918667.1*WP_000149064.1 + WP_001060462.1 + WP_001788197.1  + WP_001017131.1  + WP_001106057.1 +(1 | cc), dat10.c)
+summary(mod9)
+
+anova(mod1,mod9)
+```
+
+```{r}
+mod10 = lmer(r ~ WP_000871607.1 + WP_000918667.1 + WP_001106057.1*WP_000149064.1 + WP_001060462.1 + WP_001788197.1  + WP_001017131.1  +(1 | cc), dat10.c)
+summary(mod10)
+
+anova(mod1,mod10)
+```
+
+```{r}
+mod11 = lmer(r ~ WP_000871607.1 + WP_000918667.1*WP_001106057.1 + WP_000149064.1  + WP_001060462.1 + WP_001788197.1  + WP_001017131.1  +(1 | cc), dat10.c)
+summary(mod11)
+
+anova(mod1,mod11)
+```
+
+```{r}
+mod12 = lmer(r ~ WP_000871607.1 + WP_000918667.1 + WP_001017131.1*WP_001106057.1 + WP_000149064.1 + WP_001060462.1 + WP_001788197.1  +(1 | cc), dat10.c)
+summary(mod12)
+
+anova(mod1,mod12)
+```
+
+```{r}
+mod13 = lmer(r ~ WP_000871607.1 + WP_000918667.1 + WP_000149064.1 + WP_001788197.1*WP_001060462.1 + WP_001106057.1  + WP_001017131.1  +(1 | cc), dat10.c)
+summary(mod13)
+
+anova(mod1,mod13)
+```
+
+
+## Standard linear model (without random effects)
+
+Let's test if the triple interaction (two SNPs and CC) is significant on a standard linear model:
+```{r}
+m1 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + cc, dat10.c)
+summary(m1)
+
+## from mod13, the only interaction close to significance:
+m13 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001060462.1*cc + WP_001017131.1 + WP_000149064.1 + WP_001106057.1, dat10.c)
+summary(m13)
+
+anova(m1,m13)
+```
+
+## Now testing interaction with cc
+```{r}
+m1 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + cc, dat10.c)
+summary(m1)
+
+m1.1 = lm(r ~ WP_000871607.1*cc + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1, dat10.c)
+anova(m1,m1.1)
+
+m1.2 = lm(r ~ WP_000871607.1 + WP_000918667.1*cc + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1, dat10.c)
+anova(m1,m1.2)
+
+m1.3 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*cc + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1, dat10.c)
+anova(m1,m1.3)
+
+m1.4 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1*cc + WP_001017131.1 + WP_000149064.1 + WP_001106057.1, dat10.c)
+summary(m1.4)
+anova(m1,m1.4)
+
+m1.5 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1*cc + WP_000149064.1 + WP_001106057.1, dat10.c)
+anova(m1,m1.5)
+
+m1.6 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1*cc + WP_001106057.1, dat10.c)
+anova(m1,m1.6)
+
+
+m1.7 = lm(r ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1*cc, dat10.c)
+anova(m1,m1.7)
+```
+
+

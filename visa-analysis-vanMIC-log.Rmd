@@ -1,0 +1,379 @@
+---
+title: "VISA stat analysis: van_mic"
+author: CSL
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Main comments
+- Focused on columns with at least 10% ones (due to restrictions on singular data matrix)
+- From nonsynonimous data:
+  - only interaction of WP_000871607.1 (main effect significant 0.25941) and WP_001060462.1 (main effect not significant: 0.25742) was barely not significant (pvalue=0.054, negative coefficient: -0.34493)
+  - There was no evidence that interaction effects were different by background (CC)
+  - WP_000871607.1 (pvalue=0.00937, 0.20862) and WP_001788197.1 (pvalue=0.0057, 0.26263) are significantly associated with van_mic (positive coefficient)
+  - growth (fitness) is not a significant covariate in the model
+- From all data:
+  - WP_001106057.1 (pvalue=0.0112) is significantly associated with van_mic (negative coefficient, -0.190066)
+  - no interaction was significant. Closer to significance: `WP_001060462.1*WP_001106057.1` with pvalue=0.085 (positive coefficient)
+  - There was no evidence that interaction effects were different by background (CC)
+  - Significant interaction between WP_001788197.1 (main effect not significant -0.06457) and CC (main effect not significant -0.02670) (pvalue=0.022 with positive coefficient(WP_001788197.1:ccNRS70)=0.34003
+
+
+# Using log(MIC) as response
+
+## Nonsynonimous data: `nonsyn_var_matrix.csv`
+
+Reading the data (starting with nonsyn data as it already has the phenotypes):
+```{r}
+dat = read.table("data/nonsyn_var_matrix.csv", sep=",", header=TRUE)
+str(dat)
+summary(dat)
+```
+Removing columns of all zeroes:
+```{r}
+dat2 = dat[, colSums(dat != 0, na.rm = TRUE) > 0]
+str(dat2)
+```
+
+Removing columns of all zeroes and just one 1:
+```{r}
+dat3 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 1)]
+str(dat3)
+summary(dat3)
+```
+
+Removing columns of less than 10 ones (~10%):
+```{r}
+dat4 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 9)]
+str(dat4)
+summary(dat4)
+```
+
+One strange thing: I thought the columns are presence/absence, hence binary 0/1, but `WP_000918667.1` and `WP_001060462.1` have a 2:
+```{r}
+dat4[dat4$WP_000918667.1 == 2,]
+dat4[dat4$WP_001060462.1 == 2,]
+
+dat3[dat3$WP_001060462.1 == 2,]
+dat3[dat3$WP_000918667.1 == 2,]
+```
+We will convert the 2 to 1:
+```{r}
+dat4$WP_000918667.1[dat4$WP_000918667.1 == 2] = 1
+dat4$WP_001060462.1[dat4$WP_001060462.1 == 2] = 1
+
+dat3$WP_001060462.1[dat3$WP_001060462.1 == 2] = 1
+dat3$WP_000918667.1[dat3$WP_000918667.1 == 2] = 1
+```
+
+We need to remove the NA rows:
+```{r}
+## >10% ones
+dat10.c = dat4[complete.cases(dat4),]
+dat10.c = within(dat10.c, Strain<-factor(Strain))
+str(dat10.c)
+
+## >1 ones
+dat1.c = dat3[complete.cases(dat3),]
+dat1.c = within(dat1.c, Strain<-factor(Strain))
+str(dat1.c)
+```
+
+
+## Statistical analyses
+
+We will fit a linear mixed effects model using only the interactions that appeared in the plots (instead of the 15 possible interactions on 6 variables). We will group the strains by `Strain`.
+
+Summary of interactions:
+
+- WP_000871607.1 and WP_000918667.1: not significant (pvalue=0.63)
+- WP_000871607.1 and WP_00101713.1: not significant (pvalue=0.13)
+- WP_001788197.1 and WP_001017131.1: not significant (pvalue=0.23)
+- WP_001788197.1 and WP_000149064.1: not significant (pvalue=0.23)
+- WP_000871607.1 and WP_001060462.1: barely not significant (pvalue=0.054)
+- WP_001060462.1 and WP_001788197.1: not significant (pvalue=0.3)
+- WP_001017131.1 and WP_001060462.1: not significant (pvalue=0.96)
+
+First, we fit the model without interactions:
+```{r}
+library(stringr)
+dat10.c$cc = "NRS384"
+dat10.c$cc[str_detect(dat10.c$Strain,"NRS70")] = "NRS70"
+dat10.c = within(dat10.c, cc <- factor(cc))
+
+library(lme4)
+##library(lmerTest)
+
+mod1 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod1)
+```
+
+Then, we fit the models with interactions one by one and compare to the model without interactions with ANOVA. We fit two different interaction models: one with scalar random effects (interactions do not depend on CC), and one with vector random effects (interactions depend on CC). 
+```{r}
+mod2 = lmer(log(van_mic) ~ WP_000871607.1*WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod2)
+
+anova(mod1,mod2)
+```
+Interaction `WP_000871607.1*WP_000918667.1` not significant.
+
+
+```{r}
+mod3 = lmer(log(van_mic) ~ WP_000871607.1*WP_001017131.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod3)
+
+anova(mod1,mod3)
+
+mod3.2 = lmer(log(van_mic) ~ WP_000871607.1*WP_001017131.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_000149064.1 + (1 + WP_000871607.1*WP_001017131.1| cc), dat10.c)
+summary(mod3.2)
+
+anova(mod3,mod3.2)
+anova(mod1,mod3.2)
+```
+Interaction `WP_000871607.1*WP_001017131.1` not significant (careful: singular solution on `mod3`).
+
+```{r}
+mod4 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001017131.1 + WP_001060462.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod4)
+
+anova(mod1,mod4)
+
+mod4.2 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001017131.1 + WP_001060462.1 + WP_000149064.1 + (1+WP_001788197.1*WP_001017131.1 | cc), dat10.c)
+summary(mod4.2)
+
+anova(mod4,mod4.2)
+anova(mod1,mod4.2)
+```
+Interaction `WP_001788197.1*WP_001017131.1` not significant (careful: singular solution on `mod4`).
+
+```{r}
+mod5 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_000149064.1 + WP_001060462.1 + WP_001017131.1 + (1 | cc), dat10.c)
+summary(mod5)
+
+anova(mod1,mod5)
+```
+Interaction `WP_001788197.1*WP_000149064.1` not significant (careful: singular solution on `mod5`).
+
+```{r}
+mod6 = lmer(log(van_mic) ~ WP_000871607.1*WP_001060462.1 + WP_000918667.1 + WP_001788197.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod6)
+
+anova(mod1,mod6)
+```
+Not significant interaction `WP_000871607.1*WP_001060462.1`, but pvalue=0.06.
+
+```{r}
+mod7 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod7)
+
+anova(mod1,mod7)
+```
+Not significant interaction `WP_001788197.1*WP_001060462.1`.
+
+```{r}
+mod8 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1*WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod8)
+
+anova(mod1,mod8)
+```
+Not significant interaction `WP_001060462.1*WP_001017131.1`.
+
+### Standard linear model (without random effects)
+
+Let's test if the triple interaction (two SNPs and CC) is significant on a standard linear model:
+```{r}
+m1 = lm(log(van_mic) ~ r + WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + cc, dat10.c)
+summary(m1)
+
+## from mod6, the only interaction close to significance:
+m6 = lm(log(van_mic) ~ r + WP_000871607.1*WP_001060462.1*cc + WP_000918667.1 + WP_001788197.1 + WP_001017131.1 + WP_000149064.1, dat10.c)
+summary(m6)
+
+anova(m1,m6)
+
+## without fitness as covariate
+m2 = lm(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + cc, dat10.c)
+summary(m2)
+
+anova(m2,m1)
+```
+Not significant either: so, no evidence of different interaction effects by cc.
+
+
+
+## All data: `all_var_matrix.csv`
+
+Reading the data:
+```{r}
+dat = read.table("data/all_var_matrix.csv", sep=",", header=TRUE)
+dat0 = read.table("data/nonsyn_var_matrix.csv", sep=",", header=TRUE)
+
+dat$r = dat0$r
+dat$van_mic = dat0$van_mic
+dat$dap_mic = dat0$dap_mic
+
+str(dat)
+summary(dat)
+```
+
+Removing columns of all zeroes:
+```{r}
+dat2 = dat[, colSums(dat != 0, na.rm = TRUE) > 0]
+str(dat2)
+```
+
+Removing columns of all zeroes and just one 1:
+```{r}
+dat3 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 1)]
+str(dat3)
+summary(dat3)
+```
+
+Removing columns of less than 10 ones (~10%). We have the exact same as in non-synonimous except for `WP_001106057.1`.
+```{r}
+dat4 = dat2[,c(TRUE,colSums(dat2[,2:ncol(dat2)], na.rm=TRUE) > 9)]
+str(dat4)
+summary(dat4)
+```
+
+One strange thing: I thought the columns are presence/absence, hence binary 0/1, but `WP_000918667.1, WP_001060462.1, WP_001017131.1,  WP_000149064.1` have a 2:
+```{r}
+dat4[dat4$WP_000918667.1 == 2,]
+dat4[dat4$WP_001060462.1 == 2,]
+dat4[dat4$WP_001017131.1 == 2,]
+dat4[dat4$WP_000149064.1 == 2,]
+```
+
+We will convert the 2 to 1:
+```{r}
+dat4$WP_000918667.1[dat4$WP_000918667.1 == 2] = 1
+dat4$WP_001060462.1[dat4$WP_001060462.1 == 2] = 1
+dat4$WP_001017131.1[dat4$WP_001017131.1 == 2] = 1
+dat4$WP_000149064.1[dat4$WP_000149064.1 == 2] = 1
+```
+
+We need to remove the NA rows:
+```{r}
+## >10% ones
+dat10.c = dat4[complete.cases(dat4),]
+dat10.c = within(dat10.c, Strain<-factor(Strain))
+str(dat10.c)
+```
+
+
+## Statistical analyses
+
+We will fit a linear mixed effects model using only the interactions that appeared in the plots (instead of the 15 possible interactions on 6 variables). We will group the strains by `Strain`.
+
+Summary of interactions (all not significant):
+
+- WP_000871607.1 and WP_001106057.1
+- WP_000918667.1 and WP_001106057.1
+- WP_001788197.1 and WP_001106057.1
+- WP_001060462.1 and WP_001106057.1 (pvalue=0.085)
+- WP_001017131.1 and WP_001106057.1
+- WP_000149064.1 and WP_001106057.1
+
+First, we fit the model without interactions:
+```{r}
+dat10.c$cc = "NRS384"
+dat10.c$cc[str_detect(dat10.c$Strain,"NRS70")] = "NRS70"
+dat10.c = within(dat10.c, cc <- factor(cc))
+
+library(lme4)
+##library(lmerTest)
+
+mod1 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod1)
+```
+
+Then, we fit the models with interactions one by one and compare to the model without interactions with ANOVA. We fit two different interaction models: one with scalar random effects (interactions do not depend on CC), and one with vector random effects (interactions depend on CC). 
+```{r}
+mod2 = lmer(log(van_mic) ~ WP_000871607.1*WP_001106057.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod2)
+
+anova(mod1,mod2)
+```
+Interaction `WP_000871607.1*WP_001106057.1` not significant.
+
+
+```{r}
+mod3 = lmer(log(van_mic) ~ WP_000871607.1 + WP_001017131.1 + WP_000918667.1*WP_001106057.1 + WP_001788197.1 + WP_001060462.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod3)
+
+anova(mod1,mod3)
+```
+Interaction `WP_000918667.1*WP_001106057.1` not significant (careful: singular solution on `mod3`).
+
+```{r}
+mod4 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1*WP_001106057.1 + WP_001017131.1 + WP_001060462.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod4)
+
+anova(mod1,mod4)
+```
+Interaction `WP_001788197.1*WP_001106057.1` not significant (careful: singular solution on `mod4`).
+
+```{r}
+mod5 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_000149064.1 + WP_001060462.1*WP_001106057.1 + WP_001017131.1 + (1 | cc), dat10.c)
+summary(mod5)
+
+anova(mod1,mod5)
+```
+Interaction `WP_001060462.1*WP_001106057.1` not significant (careful: singular solution on `mod5`). Pvalue=0.085
+
+```{r}
+mod6 = lmer(log(van_mic) ~ WP_000871607.1 + WP_001060462.1 + WP_000918667.1 + WP_001788197.1 + WP_001017131.1*WP_001106057.1 + WP_000149064.1 + (1 | cc), dat10.c)
+summary(mod6)
+
+anova(mod1,mod6)
+```
+Not significant interaction `WP_001017131.1*WP_001106057.1` (careful: singular solution)
+
+```{r}
+mod7 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1*WP_001106057.1 + (1 | cc), dat10.c)
+summary(mod7)
+
+anova(mod1,mod7)
+```
+Not significant interaction `WP_000149064.1*WP_001106057.1` (careful: singular solution).
+
+## Testing if main effects differ by CC
+
+```{r}
+mod1 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 | cc), dat10.c)
+
+mod1.1 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 + WP_000871607.1 | cc), dat10.c)
+
+anova(mod1,mod1.1)
+
+mod1.2 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 + WP_001788197.1 | cc), dat10.c)
+
+anova(mod1,mod1.2)
+
+mod1.3 = lmer(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + (1 + WP_001106057.1 | cc), dat10.c)
+
+anova(mod1,mod1.3)
+```
+No significance changes in main effects due to random effects from CC.
+
+### Using standard linear model:
+```{r}
+mod1 = lm(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + cc, dat10.c)
+summary(mod1)
+
+mod1.1 = lm(log(van_mic) ~ WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + WP_000871607.1*cc, dat10.c)
+
+anova(mod1,mod1.1)
+
+mod1.2 = lm(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1 + WP_001788197.1*cc, dat10.c)
+summary(mod1.2)
+anova(mod1,mod1.2)
+
+mod1.3 = lm(log(van_mic) ~ WP_000871607.1 + WP_000918667.1 + WP_001788197.1 + WP_001060462.1 + WP_001017131.1 + WP_000149064.1 + WP_001106057.1*cc, dat10.c)
+summary(mod1.3)
+
+anova(mod1,mod1.3)
+```
